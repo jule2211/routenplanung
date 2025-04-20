@@ -10,6 +10,12 @@ with open("station_departures.pkl", "rb") as f:
     station_departures = pickle.load(f)
 print("✅ station_departures geladen")
 
+# 🔧 Test-Endpunkt zur schnellen Prüfung, ob die API läuft
+@app.route("/", methods=["GET"])
+def hello():
+    return "API läuft ✅"
+
+
 @app.route("/route", methods=["GET"])
 def get_route():
     source = request.args.get("source")
@@ -40,5 +46,6 @@ def get_route():
     return jsonify(routes)
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
+
 
