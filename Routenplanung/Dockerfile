@@ -11,8 +11,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ✅ Anwendungscode ins Image kopieren
 COPY Routenplanung_Vorhersage.py flask_app.py station_departures.pkl ./
 
-# ✅ CSV-Datei ins Image kopieren
-COPY tabelle_verbindungen.csv ./
 
 # ✅ Flask-App starten
 CMD ["python", "flask_app.py"]
