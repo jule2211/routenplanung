@@ -1,12 +1,12 @@
 from flask import Flask, request, jsonify
 import pickle
 from datetime import datetime
-from Routenplanung_Vorhersage import routenplanung  # ← dein Modul importieren
+from routenberechnung import routenplanung   # ← dein Modul importieren
 
 app = Flask(__name__)
 
 # station_departures einmal beim Start laden
-with open("station_departures.pkl", "rb") as f:
+with open("station_departure.pkl", "rb") as f:
     station_departures = pickle.load(f)
 print("✅ station_departures geladen")
 
@@ -46,6 +46,6 @@ def get_route():
     return jsonify(routes)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=8000, debug=True)
 
 
