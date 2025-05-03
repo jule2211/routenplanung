@@ -1,8 +1,3 @@
-# mit station_departures und db, die 4 schnellsten Routen, auch Ausgabe von first_train_used in all_target_routes
-# also wie test2
-# zusätzlich wird allerdings versucht Abfahrten über Nacht auch möglich zu machen
-
-
 import pandas as pd
 import heapq
 from datetime import datetime, timedelta
@@ -12,6 +7,7 @@ import bisect
 from collections import defaultdict, Counter
 import time
 import psycopg2
+
 
 
 def create_station_departures_from_db():
@@ -25,7 +21,8 @@ def create_station_departures_from_db():
 
     query = """
         SELECT zug AS train_number, halt AS station_name, abfahrt_geplant AS planned_departure,
-               ankunft_geplant AS planned_arrival, halt_nummer AS reihenfolge
+               ankunft_geplant AS planned_arrival, halt_nummer AS reihenfolge,
+               zugtyp, train_avg_30, station_avg_30
         FROM sollfahrplan_reihenfolge
         ORDER BY zug, halt_nummer;
     """
@@ -33,16 +30,19 @@ def create_station_departures_from_db():
     df = pd.read_sql(query, connection)
     connection.close()
 
+    # Zeiten als Zeit-Objekte umwandeln
     df["planned_departure"] = pd.to_datetime(df["planned_departure"], format="%H:%M:%S", errors="coerce").dt.time
     df["planned_arrival"] = pd.to_datetime(df["planned_arrival"], format="%H:%M:%S", errors="coerce").dt.time
 
+    # Sortieren nach Zug und Reihenfolge
     df.sort_values(by=["train_number", "reihenfolge"], inplace=True)
+
+    # nächste Station vorberechnen
     df["next_station"] = df.groupby("train_number")["station_name"].shift(-1)
     df["next_arrival"] = df.groupby("train_number")["planned_arrival"].shift(-1)
 
     station_departures = defaultdict(list)
 
-    # NEU: Tracking für Tageswechsel pro Zug
     current_train = None
     day_offset = 0
     last_dep_dt = None
@@ -54,41 +54,44 @@ def create_station_departures_from_db():
         dep_time = row["planned_departure"]
         arr_time = row["next_arrival"]
 
+        zugtyp = row["zugtyp"]  # 🚩 Zugtyp für from_station
+        halt_nummer = row["reihenfolge"] if pd.notna(row["reihenfolge"]) else None  # 🚩 Halt-Nummer für from_station
+        train_avg_30 = row["train_avg_30"]  # 🚩 Avg-Werte für from_station
+        station_avg_30 = row["station_avg_30"]
+
+        # Skip wenn keine gültigen Abfahrts-/Ankunftsdaten
         if pd.isna(dep_time) or pd.isna(arr_time) or pd.isna(to_station):
             continue
 
-        # Wenn neuer Zug beginnt, zurücksetzen
         if train != current_train:
             current_train = train
             day_offset = 0
             last_dep_dt = None
 
-        # Zeitpunkte erzeugen
         base_date = datetime.today().date()
         dep_dt = datetime.combine(base_date + timedelta(days=day_offset), dep_time)
         arr_dt = datetime.combine(base_date + timedelta(days=day_offset), arr_time)
 
-        # Mitternachtsübergang bei Abfahrtszeit
+        # Tagwechsel-Logik
         if last_dep_dt and dep_dt < last_dep_dt:
             day_offset += 1
             dep_dt = datetime.combine(base_date + timedelta(days=day_offset), dep_time)
             arr_dt = datetime.combine(base_date + timedelta(days=day_offset), arr_time)
 
-        # Ankunftszeit < Abfahrt? → korrigieren
         if arr_dt < dep_dt:
             arr_dt += timedelta(days=1)
 
         last_dep_dt = dep_dt
 
-        station_departures[from_station].append((train, to_station, dep_dt, arr_dt))  # speichere als datetime!
+        station_departures[from_station].append((
+            train, to_station, dep_dt, arr_dt,
+            zugtyp, halt_nummer, train_avg_30, station_avg_30
+        ))
 
-    # sortiere nach tatsächlicher Abfahrtszeit
     for connections in station_departures.values():
-        connections.sort(key=lambda x: x[2])  # x[2] ist dep_dt (datetime)
+        connections.sort(key=lambda x: x[2])  # Sortieren nach Abfahrt
 
     return dict(station_departures)
-
-
 
 def load_station_departures_pickle(filename="station_departure.pkl"):
     if os.path.exists(filename):
@@ -105,7 +108,7 @@ def save_station_departures_pickle(data, filename="station_departure.pkl"):
         pickle.dump(data, f)
     print(f" station_departures wurde als Pickle-Datei gespeichert: {filename}")
 
-def reconstruct_route_details(previous_stop, previous_train, arrival_states, source, target_key, station_departures, travel_date):
+def reconstruct_route_details(previous_stop, previous_train, arrival_states, source, target_key, station_departures, travel_date, prediction_information):
     route = []
     station, arrival_time, train = target_key
     visited = set()
@@ -116,30 +119,50 @@ def reconstruct_route_details(previous_stop, previous_train, arrival_states, sou
         visited.add((station, arrival_time, train))
         prev_station = previous_stop[(station, arrival_time, train)]
         prev_train = previous_train.get((station, arrival_time, train), None)
+
         dep_time = None
         arrival_time_prev = None
-        for t_arrival, t_departure, transfers, tr in arrival_states.get(prev_station, []):
+
+        for (t_arrival, t_departure, transfers, tr) in arrival_states.get(prev_station, []):
             if tr == prev_train and t_arrival <= arrival_time:
                 dep_time = t_departure
                 arrival_time_prev = t_arrival
                 break
+
         if dep_time is None:
             break
+
         departure_used = next_dep_time if next_dep_time is not None else dep_time
+
+        # Hole jetzt ALLE Infos aus prediction_information
+        pred_info = prediction_information.get((prev_station, station, train), {})
+        zugtyp = pred_info.get("zugtyp")
+        halt_nummer = pred_info.get("halt_nummer")
+        train_avg_30 = pred_info.get("train_avg_30")
+        station_avg_30 = pred_info.get("station_avg_30")
+
         route.append({
             "station_name_from": prev_station,
             "station_name_to": station,
             "planned_departure_from": departure_used,
             "planned_arrival_to": arrival_time,
             "train_number": train,
-            "planned_arrival_date_from": departure_used.date()
+            "planned_arrival_date_from": departure_used.date(),
+            "zugtyp": zugtyp,
+            "halt_nummer": halt_nummer,
+            "train_avg_30": train_avg_30,
+            "station_avg_30": station_avg_30
         })
+
         station = prev_station
         train = prev_train
         arrival_time = arrival_time_prev
         next_dep_time = dep_time
+
     route.reverse()
     return route
+
+
 
 def find_start_index(connections, min_dep_time):
     dep_times = [datetime.combine(datetime.today(), conn[2].time()) if isinstance(conn[2], datetime) else datetime.combine(datetime.today(), conn[2]) for conn in connections]
@@ -159,13 +182,12 @@ def routenplanung(source, target, station_departures, departure_time, buffer_min
     arrival_info = defaultdict(lambda: (datetime.max, float("inf")))
     arrival_info[source] = (departure_time, 0)
 
-    # Struktur: (ankunftszeit, abfahrtszeit, transfers, zug)
     arrival_states = defaultdict(list)
     arrival_states[source].append((departure_time, departure_time, 0, None))
 
-    # NEU: Erster verwendeter Zug pro Zustand
-    first_train_used = {}
+    prediction_information = {}  # <-- Neu: Umbenannt und erweitert
 
+    first_train_used = {}
     all_target_routes = set()
     queue = []
     heapq.heappush(queue, (departure_time, source, None, 0))
@@ -173,12 +195,7 @@ def routenplanung(source, target, station_departures, departure_time, buffer_min
     iteration_count = 0
 
     while queue:
-        
         arrival_time, current_stop, current_train, transfers = heapq.heappop(queue)
-
-        #print(f"🔄 Verarbeite: {current_stop} um {arrival_time.strftime('%H:%M')} mit Zug {current_train}")
-
-        iteration_count += 1
 
         if current_stop == target:
             all_target_routes.add(((current_stop, arrival_time, current_train), transfers))
@@ -193,44 +210,28 @@ def routenplanung(source, target, station_departures, departure_time, buffer_min
 
         for i in range(start_idx, len(connections)):
             verbindung_counter += 1
-            train, next_station, dep_time, arr_time = connections[i]
+            (train, next_station, dep_time, arr_time, zugtyp, halt_nummer, train_avg_30, station_avg_30) = connections[i]
 
             dep_time = dep_time.time() if isinstance(dep_time, datetime) else dep_time
             arr_time = arr_time.time() if isinstance(arr_time, datetime) else arr_time
             planned_departure_time = datetime.combine(travel_date, dep_time)
             planned_arrival_time = datetime.combine(travel_date, arr_time)
 
-
-            # 🔄 Falls Verbindung über Mitternacht geht → Ankunft ist am nächsten Tag
             if planned_arrival_time <= planned_departure_time:
                 planned_arrival_time += timedelta(days=1)
 
-            # 🕓 Falls geplante Abfahrt nicht am selben Tag wie aktuelle Ankunft → Datum korrigieren
             if planned_departure_time.date() != arrival_time.date():
-                #print("Abfahrt ungleich Ankunft")
                 planned_departure_time += timedelta(days=1)
                 planned_arrival_time += timedelta(days=1)
 
-
-            #print(f"🔍 Prüfe Verbindung: {current_stop} → {next_station} mit Zug {train} | Abfahrt: {planned_departure_time}, Ankunft: {planned_arrival_time} | Ankunftszeit aktuell: {arrival_time}")
-
-            # ⛔ Verbindung startet vor aktueller Ankunftszeit → überspringen
             if planned_departure_time < arrival_time:
-                #print("⛔️ Verbindung startet vor aktueller Ankunftszeit → übersprungen")
                 continue
 
-             # ➡️ Berechne Wartezeit
             wartezeit = (planned_departure_time - arrival_time).total_seconds() / 3600
-
-            # 🎯 Unterschiedliche Max-Wartezeiten je nachdem, ob erster Zug oder Umstieg
             max_wait = max_initial_wait_hours if current_train is None else max_transfer_wait_hours
 
             if wartezeit > max_wait:
                 continue
-
-            if planned_departure_time < arrival_time:
-                continue  # redundant, aber als Schutz doppelt sinnvoll
-
 
             valid_transfer = True
             new_transfers = transfers
@@ -238,10 +239,7 @@ def routenplanung(source, target, station_departures, departure_time, buffer_min
             if current_train is not None and train != current_train:
                 new_transfers += 1
                 if (planned_departure_time - arrival_time) < min_transfer_time:
-                    #print(f"⛔️ Umstieg zu kurz → übersprungen")
                     continue
-            
-            #print(f"✅ Verbindung wird verwendet und zur Warteschlange hinzugefügt.")
 
             best_time, best_transfers = arrival_info[next_station]
             is_better = (
@@ -256,6 +254,15 @@ def routenplanung(source, target, station_departures, departure_time, buffer_min
 
             if (is_better or within_buffer) and valid_transfer:
                 arrival_states[next_station].append((planned_arrival_time, planned_departure_time, new_transfers, train))
+
+                # Speichere JETZT alle relevanten Infos in prediction_information
+                prediction_information[(current_stop, next_station, train)] = {
+                    "zugtyp": zugtyp,
+                    "halt_nummer": halt_nummer,
+                    "train_avg_30": train_avg_30,
+                    "station_avg_30": station_avg_30
+                }
+
                 if is_better:
                     arrival_info[next_station] = (planned_arrival_time, new_transfers)
 
@@ -263,39 +270,28 @@ def routenplanung(source, target, station_departures, departure_time, buffer_min
                 previous_stop[state_key] = current_stop
                 previous_train[state_key] = current_train
 
-                # ⬇️ Speichere, mit welchem Zug gestartet wurde
                 if current_train is None:
                     first_train_used[state_key] = train
                 else:
                     first_train_used[state_key] = first_train_used.get((current_stop, arrival_time, current_train), train)
 
-                """
-                if current_stop == "Osnabrück Hbf" or current_stop == "Hamburg-Harburg":
-                    print(f"➕ In Queue: {current_stop} → {next_station} mit {train} | "
-                          f"Abfahrt: {planned_departure_time.strftime('%H:%M')}, "
-                          f"Ankunft: {planned_arrival_time.strftime('%H:%M')}")
-                """
-                
                 heapq.heappush(queue, (planned_arrival_time, next_station, train, new_transfers))
 
     if not all_target_routes:
         print("\n❌ Keine Verbindung gefunden!")
         return None
 
-    # 🔍 DEBUG: Ausgabe aller Zielrouten mit erstem Zug
     print("\n🧪 [DEBUG] Alle gefundenen Zielrouten:")
     for (station, arrival_time, train), transfers in sorted(all_target_routes, key=lambda x: x[0][1]):
         first_train = first_train_used.get((station, arrival_time, train), "?")
-        print(f"  🎯 {station} erreicht um {arrival_time.strftime('%H:%M')} mit Zug {train}, "
-              f"gestartet mit Zug {first_train}, Umstiege: {transfers}")
+        print(f"  🎯 {station} erreicht um {arrival_time.strftime('%H:%M')} mit Zug {train}, gestartet mit Zug {first_train}, Umstiege: {transfers}")
 
-    # Auswahl der 4 schnellsten Routen basierend auf Ankunftszeit
     sorted_routes = sorted(all_target_routes, key=lambda x: x[0][1])
     best_routes = sorted_routes[:4]
 
     detailed_routes = []
     for (target_key, _transfers) in best_routes:
-        detailed = reconstruct_route_details(previous_stop, previous_train, arrival_states, source, target_key, station_departures, travel_date)
+        detailed = reconstruct_route_details(previous_stop, previous_train, arrival_states, source, target_key, station_departures, travel_date, prediction_information)
         if detailed:
             detailed_routes.append(detailed)
 
@@ -304,26 +300,21 @@ def routenplanung(source, target, station_departures, departure_time, buffer_min
     print(f"🔎 Geprüfte Verbindungen: {verbindung_counter}")
     return detailed_routes
 
-
 if __name__ == "__main__":
+    from datetime import datetime
+
     # Versuche Pickle-Datei zu laden
     station_departures = load_station_departures_pickle()
 
     # Falls keine Pickle-Datei vorhanden ist, neu erstellen und speichern
     if station_departures is None:
         station_departures = create_station_departures_from_db()
-        print("station_departures erstellt!")
+        print("✅ station_departures erstellt!")
         save_station_departures_pickle(station_departures)
 
-    
-    for connection in station_departures.get("Hamburg-Harburg", []):
-        train, to_station, dep_time, arr_time = connection
-        print(f"Zug {train} fährt um {dep_time} in Hamburg-Harburg ab und kommt um {arr_time} in {to_station} an.")
-    
-
     # Beispielhafte Eingaben
-    source = "Berlin Hbf"
-    target = "Nürnberg Hbf"
+    source = "Würzburg Hbf"
+    target = "Berlin Hbf"
 
     # 📅 Datum und Uhrzeit für Abfahrt
     travel_date = datetime.strptime("2025-04-15", "%Y-%m-%d").date()
@@ -339,11 +330,15 @@ if __name__ == "__main__":
             print(f"\n🔁 Route {idx}:")
             for leg in route:
                 print(
-                    f"🚆 {leg['train_number']} von {leg['station_name_from']} nach {leg['station_name_to']} | "
-                    f"{leg['planned_departure_from'].strftime('%H:%M')} → {leg['planned_arrival_to'].strftime('%H:%M')} "
+                    f"🚆 {leg['train_number']} ({leg['zugtyp']}) "
+                    f"| Halt-Nummer: {leg['halt_nummer']} "
+                    f"| Train-Avg-30: {leg['train_avg_30']} "
+                    f"| Station-Avg-30: {leg['station_avg_30']}"
+                )
+                print(
+                    f"    Von {leg['station_name_from']} um {leg['planned_departure_from'].strftime('%H:%M')} "
+                    f"nach {leg['station_name_to']} (Ankunft {leg['planned_arrival_to'].strftime('%H:%M')}) "
                     f"am {leg['planned_arrival_date_from']}"
                 )
     else:
         print("❌ Keine Route gefunden.")
-
-         
