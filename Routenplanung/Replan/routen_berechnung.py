@@ -445,7 +445,7 @@ def routenplanung(source, target, station_departures, departure_time, buffer_min
 
 
     sorted_routes = sorted(all_target_routes, key=lambda x: x[0][1])
-    best_routes = sorted_routes[:6]
+    best_routes = sorted_routes[:4]
 
     detailed_routes = []
     for (target_key, _transfers) in best_routes:
@@ -476,9 +476,9 @@ if __name__ == "__main__":
     # Debug: Alle Verbindungen von Hannover Hbf ausgeben
     
     """
-    if "München Hbf" in station_departures:
+    if "Würzburg" in station_departures:
         print("\n🚏 Verbindungen ab München Hbf:")
-        for conn in station_departures["Berlin Hbf"]:
+        for conn in station_departures["Würzburg"]:
             train, next_station, dep_dt, arr_dt, zugtyp, halt_nummer, train_avg_30, station_avg_30 = conn
             print(f"  🚆 Zug {train} ({zugtyp}) von {dep_dt.strftime('%H:%M')} nach {next_station} (Ankunft {arr_dt.strftime('%H:%M')})")
     else:
@@ -486,12 +486,12 @@ if __name__ == "__main__":
     """
 
     # Beispielhafte Eingaben
-    source = "Baden-Baden"
-    target = "Karlsruhe Hbf"
+    source = "Hamburg Hbf"
+    target = "Hamburg-Harburg"
 
     # 📅 Datum und Uhrzeit für Abfahrt
     travel_date = datetime.strptime("2025-04-15", "%Y-%m-%d").date()
-    departure_time = datetime.combine(travel_date, datetime.strptime("11:50", "%H:%M").time())
+    departure_time = datetime.combine(travel_date, datetime.strptime("23:59", "%H:%M").time())
 
     # Routenberechnung aufrufen
     detailed_routes = routenplanung(source, target, station_departures, departure_time, travel_date=travel_date)
