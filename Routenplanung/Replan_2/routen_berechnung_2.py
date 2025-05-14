@@ -4,6 +4,8 @@
 # inkl. station_avg_30 etc.
 # inkl. Umsteigeinfos
 # versuch über nacht zu verbessern
+# status quo
+# Versuch immer 4 Routen auszugeben
 
 
 import pandas as pd
@@ -17,7 +19,7 @@ import time
 import psycopg2
 
 
-
+"""
 def create_station_departures_from_db():
     connection = psycopg2.connect(
         host="35.246.149.161",
@@ -27,13 +29,13 @@ def create_station_departures_from_db():
         password="UWP12345!"
     )
 
-    query = """
-        SELECT zug AS train_number, halt AS station_name, abfahrt_geplant AS planned_departure,
-               ankunft_geplant AS planned_arrival, halt_nummer AS reihenfolge,
-               zugtyp, train_avg_30, station_avg_30
-        FROM sollfahrplan_reihenfolge
-        ORDER BY zug, halt_nummer;
-    """
+    query = 
+        #SELECT zug AS train_number, halt AS station_name, abfahrt_geplant AS planned_departure,
+               #ankunft_geplant AS planned_arrival, halt_nummer AS reihenfolge,
+               #zugtyp, train_avg_30, station_avg_30
+        #FROM sollfahrplan_reihenfolge
+        #ORDER BY zug, halt_nummer;
+    
 
     df = pd.read_sql(query, connection)
     connection.close()
@@ -98,6 +100,73 @@ def create_station_departures_from_db():
 
     for connections in station_departures.values():
         connections.sort(key=lambda x: x[2])  # Sortieren nach Abfahrt
+
+    return dict(station_departures)
+
+"""
+
+def create_station_departures_from_db():
+    connection = psycopg2.connect(
+        host="35.246.149.161",
+        port=5432,
+        dbname="postgres",
+        user="postgres",
+        password="UWP12345!"
+    )
+
+    query = """
+        SELECT zug AS train_number, halt AS station_name, abfahrt_geplant AS planned_departure,
+               ankunft_geplant AS planned_arrival, halt_nummer AS reihenfolge,
+               zugtyp, train_avg_30, station_avg_30
+        FROM sollfahrplan_reihenfolge
+        ORDER BY zug, halt_nummer;
+    """
+
+    df = pd.read_sql(query, connection)
+    connection.close()
+
+    # Zeiten in Zeit-Objekte umwandeln
+    df["planned_departure"] = pd.to_datetime(df["planned_departure"], format="%H:%M:%S", errors="coerce").dt.time
+    df["planned_arrival"] = pd.to_datetime(df["planned_arrival"], format="%H:%M:%S", errors="coerce").dt.time
+
+    # Sortieren nach Zug und Reihenfolge
+    df.sort_values(by=["train_number", "reihenfolge"], inplace=True)
+
+    # Nächste Stationen berechnen
+    df["next_station"] = df.groupby("train_number")["station_name"].shift(-1)
+    df["next_arrival"] = df.groupby("train_number")["planned_arrival"].shift(-1)
+
+    station_departures = defaultdict(list)
+    base_date = datetime.today().date()
+
+    for _, row in df.iterrows():
+        train = row["train_number"]
+        from_station = row["station_name"]
+        to_station = row["next_station"]
+        dep_time = row["planned_departure"]
+        arr_time = row["next_arrival"]
+
+        zugtyp = row["zugtyp"]
+        halt_nummer = row["reihenfolge"] if pd.notna(row["reihenfolge"]) else None
+        train_avg_30 = row["train_avg_30"]
+        station_avg_30 = row["station_avg_30"]
+
+        # Ungültige Daten überspringen
+        if pd.isna(dep_time) or pd.isna(arr_time) or pd.isna(to_station):
+            continue
+
+        dep_dt = datetime.combine(base_date, dep_time)
+        arr_dt = datetime.combine(base_date, arr_time)
+
+        # Kein Tagwechsel-Handling: Zeiten wie 00:14 vor 23:50 werden so belassen
+        station_departures[from_station].append((
+            train, to_station, dep_dt, arr_dt,
+            zugtyp, halt_nummer, train_avg_30, station_avg_30
+        ))
+
+    # Abfahrten pro Station sortieren
+    for connections in station_departures.values():
+        connections.sort(key=lambda x: x[2])  # Nach Abfahrtszeit sortieren
 
     return dict(station_departures)
 
@@ -269,126 +338,132 @@ def routenplanung(source, target, station_departures, departure_time, buffer_min
     arrival_states = defaultdict(list)
     arrival_states[source].append((departure_time, departure_time, 0, None))
 
-    prediction_information = {}  # <-- Neu: Umbenannt und erweitert
-
+    prediction_information = {}
     first_train_used = {}
     all_target_routes = set()
-    queue = []
-    heapq.heappush(queue, (departure_time, source, None, 0))
+
     verbindung_counter = 0
     iteration_count = 0
 
-    while queue:
-        arrival_time, current_stop, current_train, transfers = heapq.heappop(queue)
+    def verarbeite_verbindungen(start_idx_override=None):
+        nonlocal verbindung_counter, iteration_count
+        queue_local = [(departure_time, source, None, 0)]
+        heapq.heapify(queue_local)
 
-        if current_stop == target:
-            all_target_routes.add(((current_stop, arrival_time, current_train), transfers))
-            continue
+        while queue_local:
+            arrival_time, current_stop, current_train, transfers = heapq.heappop(queue_local)
+            iteration_count += 1
 
-        if current_stop not in station_departures:
-            continue
-
-        connections = station_departures[current_stop]
-        if isinstance(arrival_time, datetime):
-            arrival_time_only = arrival_time.time()
-        else:
-            arrival_time_only = arrival_time
-
-        start_idx = find_start_index(connections, arrival_time_only)
-
-        for i in range(start_idx, len(connections)):
-            verbindung_counter += 1
-            (train, next_station, dep_time, arr_time, zugtyp, halt_nummer, train_avg_30, station_avg_30) = connections[i]
-
-            dep_time = dep_time.time() if isinstance(dep_time, datetime) else dep_time
-            arr_time = arr_time.time() if isinstance(arr_time, datetime) else arr_time
-            planned_departure_time = datetime.combine(travel_date, dep_time)
-            planned_arrival_time = datetime.combine(travel_date, arr_time)
-
-            if planned_arrival_time <= planned_departure_time:
-                planned_arrival_time += timedelta(days=1)
-
-            if planned_departure_time.date() != arrival_time.date():
-                planned_departure_time += timedelta(days=1)
-                planned_arrival_time += timedelta(days=1)
-
-            if planned_departure_time < arrival_time:
-                planned_departure_time += timedelta(days=1)
-                planned_arrival_time += timedelta(days=1)
-
-            
-
-            if planned_departure_time < arrival_time:
-                """
-                if current_stop == "Ingolstadt Hbf":
-                    print(f"⏭️ Verworfen (Abfahrt {planned_departure_time.strftime('%H:%M')} < aktuelle Ankunft {arrival_time.strftime('%H:%M')})")
-                    print(planned_departure_time.date(), arrival_time.date())
-                """
+            if current_stop == target:
+                all_target_routes.add(((current_stop, arrival_time, current_train), transfers))
                 continue
 
-            wartezeit = (planned_departure_time - arrival_time).total_seconds() / 3600
-            max_wait = max_initial_wait_hours if current_train is None else max_transfer_wait_hours
-
-            if wartezeit > max_wait:
-                """
-                if current_stop == "Hamburg Hbf":
-                    print(f"⏭️ Verworfen (Wartezeit {wartezeit:.2f}h > max. {max_wait}h)")
-                """
+            if current_stop not in station_departures:
                 continue
 
-            valid_transfer = True
-            new_transfers = transfers
+            connections = station_departures[current_stop]
+            arrival_time_only = arrival_time.time() if isinstance(arrival_time, datetime) else arrival_time
 
-            if current_train is not None and train != current_train:
-                new_transfers += 1
-                if (planned_departure_time - arrival_time) < min_transfer_time:
-                    """
-                    if current_stop == "Hamburg Hbf":
-                        print(f"⏭️ Verworfen (Umsteigezeit {(planned_departure_time - arrival_time).total_seconds()/60:.1f}min zu kurz)")
-                    """
+            if start_idx_override is not None:
+                start_idx = start_idx_override
+            else:
+                start_idx = find_start_index(connections, arrival_time_only)
+
+            for i in range(start_idx, len(connections)):
+                verbindung_counter += 1
+                (train, next_station, dep_time, arr_time, zugtyp, halt_nummer, train_avg_30, station_avg_30) = connections[i]
+
+                if train == 60402.0 and current_stop == "Bonn-Beuel":
+                    print(f"\n🚄 Zug 699 wird geprüft (von {current_stop} nach {next_station})")
+
+                dep_time = dep_time.time() if isinstance(dep_time, datetime) else dep_time
+                arr_time = arr_time.time() if isinstance(arr_time, datetime) else arr_time
+                planned_departure_time = datetime.combine(travel_date, dep_time)
+                planned_arrival_time = datetime.combine(travel_date, arr_time)
+
+                if planned_arrival_time <= planned_departure_time:
+                    planned_arrival_time += timedelta(days=1)
+
+                if planned_departure_time.date() != arrival_time.date():
+                    planned_departure_time += timedelta(days=1)
+                    planned_arrival_time += timedelta(days=1)
+
+                if planned_departure_time < arrival_time:
+                    planned_departure_time += timedelta(days=1)
+                    planned_arrival_time += timedelta(days=1)
+
+                wartezeit = (planned_departure_time - arrival_time).total_seconds() / 3600
+                max_wait = max_initial_wait_hours if current_train is None else max_transfer_wait_hours
+
+                if planned_departure_time < arrival_time:
+                    if train == 60402.0 and current_stop == "Bonn-Beuel":
+                        print(f"⛔ Zug 699 verworfen: Abfahrt vor Ankunft (Abfahrt: {planned_departure_time}, Ankunft: {arrival_time})")
                     continue
 
-            best_time, best_transfers = arrival_info[next_station]
-            is_better = (
-                planned_arrival_time < best_time or
-                (planned_arrival_time == best_time and new_transfers < best_transfers)
-            )
-            within_buffer = (
-                best_time != datetime.max and
-                planned_arrival_time < (best_time + timedelta(minutes=buffer_minutes)) and
-                new_transfers <= best_transfers
-            )
+                if wartezeit > max_wait:
+                    if train == 60402.0 and current_stop == "Bonn-Beuel":
+                        print(f"⛔ Zug 699 verworfen: Wartezeit zu lang ({wartezeit:.2f}h > {max_wait}h)")
+                    continue
 
-            if (is_better or within_buffer) and valid_transfer:
-                arrival_states[next_station].append((planned_arrival_time, planned_departure_time, new_transfers, train))
+                new_transfers = transfers
+                if current_train is not None and train != current_train:
+                    new_transfers += 1
+                    if (planned_departure_time - arrival_time) < min_transfer_time:
+                        if train == 60402.0 and current_stop == "Bonn-Beuel":
+                            print(f"⛔ Zug 699 verworfen: Umsteigezeit zu kurz")
+                        continue
 
-                prediction_information[(current_stop, next_station, train)] = {
-                    "zugtyp": zugtyp,
-                    "halt_nummer": halt_nummer,
-                    "train_avg_30": train_avg_30,
-                    "station_avg_30": station_avg_30
-                }
+                best_time, best_transfers = arrival_info[next_station]
+                is_better = (
+                    planned_arrival_time < best_time or
+                    (planned_arrival_time == best_time and new_transfers < best_transfers)
+                )
+                within_buffer = (
+                    best_time != datetime.max and
+                    planned_arrival_time < (best_time + timedelta(minutes=buffer_minutes)) and
+                    new_transfers <= best_transfers
+                )
 
-                if is_better:
-                    arrival_info[next_station] = (planned_arrival_time, new_transfers)
+                if (is_better or within_buffer):
+                    if train == 60402.0 and current_stop == "Bonn-Beuel":
+                        print(f"✅ Zug 699 wird zur Warteschlange hinzugefügt (Ankunft: {planned_arrival_time}, Transfers: {new_transfers})")
 
-                state_key = (next_station, planned_arrival_time, train)
-                previous_stop[state_key] = current_stop
-                previous_train[state_key] = current_train
+                    arrival_states[next_station].append((planned_arrival_time, planned_departure_time, new_transfers, train))
 
-                if current_train is None:
-                    first_train_used[state_key] = train
-                else:
-                    first_train_used[state_key] = first_train_used.get((current_stop, arrival_time, current_train), train)
+                    prediction_information[(current_stop, next_station, train)] = {
+                        "zugtyp": zugtyp,
+                        "halt_nummer": halt_nummer,
+                        "train_avg_30": train_avg_30,
+                        "station_avg_30": station_avg_30
+                    }
 
-                heapq.heappush(queue, (planned_arrival_time, next_station, train, new_transfers))
-                """
-                if current_stop == "Hamburg Hbf":
-                    print(f"✅ Verbindung hinzugefügt: Zug {train} ab {current_stop} ({planned_departure_time.strftime('%H:%M')}) "
-                          f"nach {next_station} (Ankunft {planned_arrival_time.strftime('%H:%M')}) | Umstiege: {new_transfers}")
+                    if is_better:
+                        arrival_info[next_station] = (planned_arrival_time, new_transfers)
 
-                """
+                    state_key = (next_station, planned_arrival_time, train)
+                    previous_stop[state_key] = current_stop
+                    previous_train[state_key] = current_train
 
+                    if current_train is None:
+                        first_train_used[state_key] = train
+                    else:
+                        first_train_used[state_key] = first_train_used.get((current_stop, arrival_time, current_train), train)
+
+                    heapq.heappush(queue_local, (planned_arrival_time, next_station, train, new_transfers))
+
+                elif train == 60402.0 and current_stop == "Bonn-Beuel":
+                    print(planned_arrival_time, best_time, new_transfers, best_transfers)
+                    print(f"⛔ Zug 699 verworfen: Keine Verbesserung gegenüber bestehender Verbindung")
+
+
+    # 🧭 1. Suche mit Abfahrtszeit ab start_index
+    verarbeite_verbindungen()
+    
+    # 🧭 2. Falls keine Verbindung gefunden: erneut ab Index 0 starten (Mitternacht)
+    if not all_target_routes:
+        print("🔁 Kein Ergebnis gefunden – zweiter Versuch ab Mitternacht")
+        verarbeite_verbindungen(start_idx_override=0)
+    
     if not all_target_routes:
         print("\n❌ Keine Verbindung gefunden!")
         return None
@@ -398,58 +473,42 @@ def routenplanung(source, target, station_departures, departure_time, buffer_min
         first_train = first_train_used.get((station, arrival_time, train), "?")
         print(f"  🎯 {station} erreicht um {arrival_time.strftime('%H:%M')} mit Zug {train}, gestartet mit Zug {first_train}, Umstiege: {transfers}")
 
-    # Gruppieren und beste Verbindung (mit wenigsten Umstiegen) behalten
-    # Gruppieren und beste Verbindung (mit wenigsten Umstiegen) behalten
+    # Gruppieren nach Startzug und filtern nach Qualität
     best_routes_map = {}
-
     for (station, arrival_time, train), transfers in all_target_routes:
         first_train = first_train_used.get((station, arrival_time, train), "?")
         key = (station, arrival_time, first_train)
         if key not in best_routes_map or transfers < best_routes_map[key][1]:
             best_routes_map[key] = ((station, arrival_time, train), transfers)
 
-        # 🔥 Zusätzlicher Block danach:
-    time_window_minutes = 30  # Maximales Zeitfenster für spätere Ankünfte (in Minuten)
-
-    # Sortiere alle Routen nach Startzug
+    time_window_minutes = 30
     routes_by_start_train = defaultdict(list)
-    for (station, arrival_time, train_first_train), (route_info, transfers) in best_routes_map.items():
-        routes_by_start_train[train_first_train].append((station, arrival_time, route_info, transfers))
+    for (station, arrival_time, first_train), (route_info, transfers) in best_routes_map.items():
+        routes_by_start_train[first_train].append((station, arrival_time, route_info, transfers))
 
     filtered_routes = []
-
     for first_train, routes in routes_by_start_train.items():
-        # Sortiere pro Startzug die Verbindungen nach Ankunftszeit
         routes.sort(key=lambda x: x[1])
-
         best_station, best_arrival_time, best_route_info, best_transfers = routes[0]
-        filtered_routes.append((best_route_info, best_transfers))  # Immer beste Verbindung behalten
-
+        filtered_routes.append((best_route_info, best_transfers))
         for station, arrival_time, route_info, transfers in routes[1:]:
             delta_minutes = (arrival_time - best_arrival_time).total_seconds() / 60
+            if delta_minutes <= time_window_minutes and transfers <= best_transfers:
+                filtered_routes.append((route_info, transfers))
+            elif delta_minutes > time_window_minutes and transfers < best_transfers:
+                filtered_routes.append((route_info, transfers))
 
-            if delta_minutes <= time_window_minutes:
-                if transfers <= best_transfers:
-                    filtered_routes.append((route_info, transfers))
-                else:
-                    # Innerhalb Zeitfenster aber mehr Umstiege -> nicht behalten
-                    pass
-            else:
-                # Außerhalb Zeitfenster: nur behalten, wenn weniger Umstiege als beste Verbindung
-                if transfers < best_transfers:
-                    filtered_routes.append((route_info, transfers))
-
-
-    # ⚡ Ersetze jetzt all_target_routes durch die neue gefilterte Menge
     all_target_routes = set(filtered_routes)
-
-
     sorted_routes = sorted(all_target_routes, key=lambda x: x[0][1])
     best_routes = sorted_routes[:4]
 
     detailed_routes = []
     for (target_key, _transfers) in best_routes:
-        detailed = reconstruct_route_details(previous_stop, previous_train, arrival_states, source, target_key, station_departures, travel_date, prediction_information)
+        detailed = reconstruct_route_details(
+            previous_stop, previous_train, arrival_states,
+            source, target_key, station_departures, travel_date,
+            prediction_information
+        )
         if detailed:
             detailed_routes.append(detailed)
 
@@ -475,23 +534,23 @@ if __name__ == "__main__":
 
     # Debug: Alle Verbindungen von Hannover Hbf ausgeben
     
-    """
-    if "Würzburg" in station_departures:
+    
+    if "Göttingen" in station_departures:
         print("\n🚏 Verbindungen ab München Hbf:")
-        for conn in station_departures["Würzburg"]:
+        for conn in station_departures["Göttingen"]:
             train, next_station, dep_dt, arr_dt, zugtyp, halt_nummer, train_avg_30, station_avg_30 = conn
             print(f"  🚆 Zug {train} ({zugtyp}) von {dep_dt.strftime('%H:%M')} nach {next_station} (Ankunft {arr_dt.strftime('%H:%M')})")
     else:
         print("❌ Keine Verbindungen ab Hannover Hbf gefunden!")
-    """
+    
 
     # Beispielhafte Eingaben
-    source = "Hamburg Hbf"
+    source = "Aachen Hbf"
     target = "Berlin Hbf"
 
     # 📅 Datum und Uhrzeit für Abfahrt
     travel_date = datetime.strptime("2025-04-15", "%Y-%m-%d").date()
-    departure_time = datetime.combine(travel_date, datetime.strptime("09:59", "%H:%M").time())
+    departure_time = datetime.combine(travel_date, datetime.strptime("10:00", "%H:%M").time())
 
     # Routenberechnung aufrufen
     detailed_routes = routenplanung(source, target, station_departures, departure_time, travel_date=travel_date)
