@@ -122,8 +122,7 @@ curl "http://localhost:8000/route?source=Berlin&target=München&date=2025-06-01&
 | Method | Description |
 |--------|--------------|
 | `routenplanung()` | Calculates (up to) four optimal train connections from a starting station to a destination station. |
-| `filter_and_sort_routes()` | 
-Selects the best connections from all routes found, taking into account transfers and arrival times. |
+| `filter_and_sort_routes()` | Selects the best connections from all routes found, taking into account transfers and arrival times. |
 | `verarbeite_verbindungen()` | The actual routing algorithm. Uses a priority queue (heap) for route calculation. |
 | `reconstruct_route_details(...)` | Rekonstruiert, ausgehend vom Zielknoten, eine vollständige Zugverbindung.  |
 | `create_station_departures_from_db()` | Reconstructs a complete train connection starting from the destination node. |
@@ -132,8 +131,7 @@ Selects the best connections from all routes found, taking into account transfer
 
 ## Data
 
-- `station_departure.pkl` Contains all known departures for each station (based on the planned timetable in the database), sorted by departure time
-- The file was created based on the sollfahrplan_reihenfolge table and reduces access to connections per station to a simple dictionary lookup
+- `station_departure.pkl` Contains all known departures for each station (based on the planned timetable in the database), sorted by departure time. The file was created based on the sollfahrplan_reihenfolge table and reduces access to connections per station to a simple dictionary lookup
 
 ---
 
