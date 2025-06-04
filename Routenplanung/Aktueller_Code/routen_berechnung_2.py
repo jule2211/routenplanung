@@ -221,14 +221,14 @@ def find_start_index(connections, arrival_time_only):
 
 def routenplanung(source, target, station_departures, departure_time, buffer_minutes=800, min_transfer_minutes=5,  
                   max_initial_wait_hours=8, max_transfer_wait_hours=2, travel_date=None,
-                  max_attempts=6, delay_hours=2):
+                  max_attempts=6, delay_hours=2, max_duration_seconds=5):
     import time
     from collections import defaultdict
     import heapq
     from datetime import datetime, timedelta
     
     start_time_total = time.time()
-    max_duration_seconds = 5  # ⏱️ maximale Gesamtdauer in Sekunden
+    max_duration_seconds = max_duration_seconds  # ⏱️ maximale Gesamtdauer in Sekunden
     deadline_time = start_time_total + max_duration_seconds
 
     if travel_date is None:
@@ -459,7 +459,7 @@ if __name__ == "__main__":
 
     # 📅 Datum und Uhrzeit für Abfahrt
     travel_date = datetime.strptime("2025-04-15", "%Y-%m-%d").date()
-    departure_time = datetime.combine(travel_date, datetime.strptime("18:00", "%H:%M").time())
+    departure_time = datetime.combine(travel_date, datetime.strptime("16:00", "%H:%M").time())
 
     # Routenberechnung aufrufen
     detailed_routes = routenplanung(source, target, station_departures, departure_time, travel_date=travel_date)

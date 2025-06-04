@@ -483,5 +483,4 @@ for idx, eintrag in enumerate(neue_analyse, 1):
 
 #gesamt_wahrscheinlichkeit = berechne_gesamtverspaetungswahrscheinlichkeit(detailed_routes[0])
 #print(gesamt_wahrscheinlichkeit)
-
 """

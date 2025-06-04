@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 import pickle
 from datetime import datetime
-from routenberechnung import routenplanung   # ← dein Modul importieren
+from routenberechnung import routenplanung   
 
 app = Flask(__name__)
 
@@ -10,7 +10,7 @@ with open("station_departure.pkl", "rb") as f:
     station_departures = pickle.load(f)
 print("✅ station_departures geladen")
 
-# 🔧 Test-Endpunkt zur schnellen Prüfung, ob die API läuft
+# Test-Endpunkt zur schnellen Prüfung, ob die API läuft
 @app.route("/", methods=["GET"])
 def hello():
     return "API läuft ✅"
