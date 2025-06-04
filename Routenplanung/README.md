@@ -1,71 +1,73 @@
-# 🚆 Routenplanung API
+# Route planning API
 
-Diese API berechnet optimale Zugverbindungen zwischen zwei Bahnhöfen auf Basis eines vordefinierten Fahrplans. Dabei werden geplante Abfahrts- und Ankunftszeiten sowie Umstiegszeiten berücksichtigt. Die Verbindungssuche basiert auf einem DIJKSTRA-ähnlichen Algorithmus. Die Daten stammen aus einer vorberechneten Pickle-Datei, die auf dem geplanten Fahrplan in der Datenbank basiert.
+This API calculates optimal train connections between two stations based on a predefined timetable. Planned departure and arrival times as well as transfer times are taken into account. The connection search is based on a DIJKSTRA-like algorithm. The data comes from a precalculated pickle file based on the planned timetable in the database.
 
-## 🔧 Projektstruktur
+## Project structure
 
-- `flaskapp.py`: Flask-Server mit API-Endpunkten
-- `routenberechnung.py`: Beinhaltet die Logik zur Routenplanung
-- `station_departure.pkl`: Pickle-Datei mit vorberechneten Abfahrtsdaten
-- `requirements.txt`: Python-Abhängigkeiten
-- `Dockerfile`: Containerdefinition zur Ausführung mit Docker
+- `flaskapp.py`: Flask server with API endpoints
+- `routenberechnung.py`: Contains the logic for route planning
+- `station_departure.pkl`: Pickle file with precalculated departure data
+- `requirements.txt`: Python dependencies
+- `Dockerfile`: Container definition for execution with Docker
 
 ---
 
-## 🚀 Anwendung starten
+## Start application
 
-### 1. Mit Python direkt (lokal)
+### 1. Directly with Python (locally)
 
-Voraussetzung: Python 3.10+ ist installiert
+Prerequisite: Python 3.10+ is installed
 
 ```bash
-# Abhängigkeiten installieren
+
+# Install dependencies
 pip install -r requirements.txt
 
-# Flask-App starten
+# Start Flask app
 python flaskapp.py
 ```
 
-Die API ist dann unter `http://localhost:8000` erreichbar.
 
-### 2. Mit Docker
+The API can then be accessed at `http://localhost:8000`.
+
+### 2. With Docker
 
 ```bash
-# Image bauen
+# build image
 docker build -t routenplanung-api .
 
-# Container starten
+# start container
 docker run -p 8000:8000 routenplanung-api
 ```
 
 ---
 
-## 📡 Beispiel-Request
+## Example request
 
-Du kannst eine Verbindung über folgenden GET-Endpunkt anfragen:
+You can request a connection using the following GET endpoint:
 
 ```
 GET /route?source=Berlin&target=München&date=2025-06-01&time=08:30
 ```
 
-### Beispiel mit curl:
+### Example with curl:
 
 ```bash
 curl "http://localhost:8000/route?source=Berlin&target=München&date=2025-06-01&time=08:30"
 ```
 
-### Erklärung der Parameter:
+### Explanation of parameters:
 
-| Parameter | Beschreibung                      | Beispiel          |
+| Parameter | Description                      | Example          |
 |-----------|-----------------------------------|-------------------|
-| `source`  | Startbahnhof                      | `Berlin`          |
-| `target`  | Zielbahnhof                       | `München`         |
-| `date`    | Reisedatum im Format `YYYY-MM-DD` | `2025-05-26`      |
-| `time`    | Abfahrtszeit im Format `HH:MM`    | `08:00`           |
+| `source`  | Starting station                     | `Berlin`          |
+| `target`  | Destination station                     | `München`         |
+| `date`    | Travel date in the format `YYYY-MM-DD` | `2025-05-26`      |
+| `time`    | Departure time in the format `HH:MM`    | `08:00`           |
 
 ---
 
-## Beispiel-Response
+## Example-Response
 ```json
 [
   {
@@ -115,45 +117,35 @@ curl "http://localhost:8000/route?source=Berlin&target=München&date=2025-06-01&
 
 ---
 
-## 🧠 Zentrale Methoden (`routenberechnung.py`)
+## Key methods (`routenberechnung.py`)
 
-| Methode | Beschreibung |
+| Method | Description |
 |--------|--------------|
-| `routenplanung(start, ziel, abfahrt, max_routes=6)` | Hauptfunktion zur Berechnung der besten Routen. |
-| `reconstruct_route_details(...)` | Erzeugt eine detailreiche Beschreibung einer Route. |
-| `calculate_total_delay_probability(...)` | Schätzt die Wahrscheinlichkeit, dass die Route verspätet ankommt. |
-| `get_station_departures_from_pickle()` | Lädt die Verbindungsdaten aus `station_departure.pkl`. |
+| `routenplanung()` | Calculates (up to) four optimal train connections from a starting station to a destination station. |
+| `filter_and_sort_routes()` | 
+Selects the best connections from all routes found, taking into account transfers and arrival times. |
+| `verarbeite_verbindungen()` | The actual routing algorithm. Uses a priority queue (heap) for route calculation. |
+| `reconstruct_route_details(...)` | Rekonstruiert, ausgehend vom Zielknoten, eine vollständige Zugverbindung.  |
+| `create_station_departures_from_db()` | Reconstructs a complete train connection starting from the destination node. |
 
 ---
 
-## 📦 Daten
+## Data
 
-- `station_departure.pkl` enthält alle geplanten Verbindungen zwischen Bahnhöfen mit Abfahrts- und Ankunftszeiten, Zugnummern und Haltereihenfolge.
-- Die Datei wurde basierend auf der Tabelle sollfahrplan_reihenfolge erstellt und reduziert den Zugriff auf Verbindungen pro Bahnhof auf einen einfachen Dictionary-Lookup
+- `station_departure.pkl` Contains all known departures for each station (based on the planned timetable in the database), sorted by departure time
+- The file was created based on the sollfahrplan_reihenfolge table and reduces access to connections per station to a simple dictionary lookup
 
 ---
 
-## 🛠 Voraussetzungen
+## requirements
+
 
 - flask
 - pandas
 - psycopg2
 
+##  responsibility
 
+Jule
 ---
 
-
-
-## ✅ Test
-
-Rufe einfach folgenden Endpunkt auf, um zu prüfen, ob die API läuft:
-
-```
-GET /
-```
-
-Antwort:
-
-```
-API läuft ✅
-```
