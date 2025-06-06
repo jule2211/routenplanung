@@ -570,21 +570,6 @@ if __name__ == "__main__":
         #print("✅ station_departures erstellt!")
         save_station_departures_pickle(station_departures)
 
-    """
-    delays = {
-    # Route 1 (Zug 588.0)
-    ("München Hbf", "Ingolstadt", 588.0): (0, 0),   # 5 Minuten Verspätung
-    ("Ingolstadt", "Nürnberg", 588.0): (1, 0),        # keine Verspätung
-    ("Nürnberg", "Würzburg", 588.0): (0,  10),   # 10 Minuten Verspätung
-
-    # Route 2 (Zug 538.0)
-    ("München Hbf", "Ingolstadt", 538.0): (0, 0),        # keine Verspätung
-    ("Ingolstadt", "Nürnberg", 538.0): (0, 0),   # keine Verspätung
-    ("Nürnberg", "Würzburg", 538.0): (0,0),         # keine Verspätung
-}
-    
-    updated_station_departures = apply_delays_to_station_departures(station_departures, delays)
-    """
     
 
     # Beispielhafte Eingaben
