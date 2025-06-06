@@ -51,8 +51,8 @@ Core routing algorithm for determining optimal train connections using a priorit
     - is_better: Earlier arrival time or same early arrival time and fewer transfers.
     - within_buffer: Slightly later arrival (within buffer) and no more transfers.
 - **Buffer logic:**  
-  - within_buffer allows you to find connections of equal or better quality that arrive at the same time or slightly later.
-- In addition, with within_buffer more routes can be found in one run (even at later times than the specified departure_time).
+    - within_buffer allows you to find connections of equal or better quality that arrive at the same time or slightly later.
+    - In addition, with within_buffer more routes can be found in one run (even at later times than the specified departure_time).
 
 - **Destination:** Stored upon arrival at the destination station, but not tracked further.
 
@@ -122,7 +122,7 @@ Calculates up to **four optimal train connections** from a starting station to a
 - Performs up to `max_attempts` search runs
 - In each run:
   - Preparation of data structures (`arrival_info` & `arrival_states`)
-  - Call `process_connections()` with current start time
+  - Call `verarbeite_verbindungen()` with current start time
   - If no route is found, this is often due to a late start time (e.g., 11:00 p.m.), for which there are no connections on the same day. In this case, a second attempt is made with start_index = 0 – i.e., with the earliest possible connection on the next day
 - Filtering via `filter_and_sort_routes()`
   - If <4 routes were found, try again with a delayed start time (delay_hours).
@@ -147,8 +147,9 @@ Calculates up to **four optimal train connections** from a starting station to a
 
 ## Additional methods (not integrated into the final solution)
 The folder ... contains additional methods that were used to try to limit the search radius and thus optimize the performance of the algorithm. `Get_station_coordinates()` establishes a connection to the database, reads the coordinates (latitude and longitude) of all stations from the stations table, and returns them as a dictionary in the format {station name: (latitude, longitude)}. Two different options were then tested:
-- `haversine_distance()`: Restriction of the search area to a circular area around the starting point, with the radius defined by the distance between the starting point and destination + buffer: The code calculates the straight-line distance between two stations, extends this by a safety margin, and then filters all stations within this radius (from the starting point) within routeplanning(). Only these are added to the queue.
-- `station_in_rectangle()`: Restricts the search space to an area defined by the start and destination stations, as suggested in Fan and Shi (2010): The code defines a function station_in_rectangle, which checks whether a given point (a “station”) lies within an area around the start and destination — with a lateral buffer in kilometers — and then filters all stations within this area within routeplanning(). Only these are added to the queue. 
+
+- `haversine_distance()`: Restriction of the search area to a circular area around the starting point, with the radius defined by the distance between the starting point and destination + buffer: The code calculates the straight-line distance between two stations, extends this by a safety margin, and then filters all stations within this radius (from the starting point) within routeplanning(). Only these are added to the queue. (routenplanung_radius.py)
+- `station_in_rectangle()`: Restricts the search space to an area defined by the start and destination stations, as suggested in Fan and Shi (2010): The code defines a function station_in_rectangle, which checks whether a given point (a “station”) lies within an area around the start and destination — with a lateral buffer in kilometers — and then filters all stations within this area within routeplanning(). Only these are added to the queue. (routenplanung_rechteck.py)  
 
 Since this search space restriction did not significantly improve performance, but there is a risk that connections may not be found due to the restricted search space, these methods were not integrated into the final solution.
 
