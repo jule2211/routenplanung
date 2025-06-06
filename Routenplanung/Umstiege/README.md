@@ -152,13 +152,16 @@ The folder ... contains additional methods that were used to try to limit the se
 
 Since this search space restriction did not significantly improve performance, but there is a risk that connections may not be found due to the restricted search space, these methods were not integrated into the final solution.
 
-# Sources
-title: Improvement of Dijkstra's algorithm and its application in route planning
-authors: DongKai Fan, Ping Shi
-August 2010IEEE Journal of Oceanic Engineering 13(2):1901-1904
-DOI: 10.1109/FSKD.2010.5569452
-SourceDBLP
-Conference: Seventh International Conference on Fuzzy Systems and Knowledge Discovery, FSKD 2010, 10-12 August 2010, Yantai, Shandong, China
+## Reference
+
+**Title:** *Improvement of Dijkstra's Algorithm and Its Application in Route Planning*  
+**Authors:** DongKai Fan, Ping Shi  
+**Published in:** *IEEE Journal of Oceanic Engineering*, August 2010, Volume 13(2), Pages 1901–1904  
+**DOI:** [10.1109/FSKD.2010.5569452](https://doi.org/10.1109/FSKD.2010.5569452)  
+**Source:** DBLP  
+**Conference:** *Seventh International Conference on Fuzzy Systems and Knowledge Discovery (FSKD 2010)*  
+**Date & Location:** 10–12 August 2010, Yantai, Shandong, China
+
 
 
 
