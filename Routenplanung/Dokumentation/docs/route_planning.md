@@ -17,8 +17,6 @@ Since timetable data rarely changes, preprocessing is more efficient than live a
 
 ---
 
-**Hinweis:**  
-Diese Methode wurde in der finalen Lösung nicht verwendet, war aber für eine robuste Planung vorgesehen.
 
 
 ### `apply_delays_to_station_departures(station_departures, delays)`
