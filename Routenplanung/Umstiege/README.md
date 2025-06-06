@@ -84,7 +84,7 @@ Filtert die besten Routen (nach Umstiegen und Ankunft) und gibt sie sortiert zur
 **Rückgabe:**  
 Liste von Routen-Tupeln: `(Zielbahnhof, Ankunftszeit, letzter Zug, Anzahl Umstiege)`
 
-**Zweck**
+**Zweck:**
 Wenn zwei Routen mit demselben Startzug existieren, ist die Variante mit späterer Ankunft nur dann sinnvoll, wenn die vorhergesagte Verspätung der früheren Route so hoch sein könnte, dass die spätere dadurch schneller ans Ziel führt.
 Bei einer Ankunftszeit-Differenz von über 45 Minuten ist das jedoch eher unwahrscheinlich, sodass in diesem Fall nur die effizientere Route beibehalten wird
 
@@ -132,6 +132,6 @@ Berechnet bis zu **vier optimale Zugverbindungen** von einem Start- zu einem Zie
 
 ---
 
-## Lizenz / Hinweise
+## Kontakt
 
-Diese Methoden sind Bestandteil eines Systems zur robusten und intelligenten Zugroutenplanung. Für weitere Details zur Architektur oder zum Einsatz in Produktivumgebungen, bitte die Projektdokumentation konsultieren.
+Jule
